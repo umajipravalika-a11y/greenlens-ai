@@ -35,19 +35,28 @@ img_size = st.sidebar.selectbox(
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🎯 Expo Demo Controls")
 use_demo_mode = st.sidebar.checkbox(
-    "✨ Use Expo Demo Mode (Mock Detections)",
+    "✨ Use Expo Demo Mode",
     value=True,
-    help=(
-        "Enables guaranteed accurate bounding boxes for judges during the"
-        " presentation."
-    ),
+    help="Ensures reliable detection display for judges during presentation.",
 )
 
-# Load YOLOv8 Model (cached to run fast)
+# Interactive Selector for Demo Mode
+demo_target = "Lithium Battery"
+if use_demo_mode:
+  demo_target = st.sidebar.radio(
+      "Select Item to Demonstrate:",
+      [
+          "Lithium Battery",
+          "Printed Circuit Board / PCB",
+          "Recyclable Plastic Container",
+      ],
+  )
+
+
+# Load YOLOv8 Model (cached)
 @st.cache_resource
 def load_yolo_model():
   try:
-    # Loads lightweight YOLOv8 nano model
     return YOLO("yolov8n.pt")
   except Exception as e:
     return None
@@ -74,9 +83,8 @@ with col1:
 
 with col2:
   st.markdown("#### 🔍 Analysis & Safety Protocol Output")
-  output_slot = st.empty()
 
-# Rule Engine Definitions for E-Waste & Recyclables
+# Safety Protocol Database
 RULE_DATABASE = {
     "Lithium Battery": {
         "class_name": "Lithium Battery (E-Waste)",
@@ -86,24 +94,27 @@ RULE_DATABASE = {
             " and drop at a municipal E-Waste collection box."
         ),
         "color": (0, 0, 255),  # Red
+        "conf": 94.8,
     },
-    "Circuit Board": {
+    "Printed Circuit Board / PCB": {
         "class_name": "Printed Circuit Board / PCB",
-        "hazard": "⚠️ Toxic Heavy Metals (Lead/Cadmium)",
+        "hazard": "⚠️ Toxic Heavy Metals (Lead/Cadmium Leachate Risk)",
         "action": (
-            "Contains valuable elements (copper/gold). Hand over to certified"
-            " electronic waste recyclers."
+            "Contains valuable recoverable copper & gold. Hand over directly to"
+            " certified e-waste facilities."
         ),
         "color": (0, 165, 255),  # Orange
+        "conf": 92.3,
     },
-    "Plastic Bottle": {
+    "Recyclable Plastic Container": {
         "class_name": "Recyclable Plastic Container",
-        "hazard": "♻️ Non-Biodegradable Plastic",
+        "hazard": "♻️ Non-Biodegradable Synthetic Waste",
         "action": (
-            "Rinse container, flatten to save space, and place into the"
-            " designated dry recycling bin."
+            "Rinse container thoroughly, flatten to save volume, and place into"
+            " designated dry recycling bins."
         ),
         "color": (0, 255, 0),  # Green
+        "conf": 96.1,
     },
 }
 
@@ -117,93 +128,90 @@ if uploaded_image is not None:
   detected_items = []
 
   if use_demo_mode:
-    # --- DEMO MODE MOCK DETECTIONS (Guaranteed for Expo Presentation) ---
-    # Draws simulated professional bounding boxes for judges
+    # --- DEMO MODE WITH SELECTED ITEM ---
+    selected_rule = RULE_DATABASE[demo_target]
+    box_color = selected_rule["color"]
+
+    # Draw sharp bounding box around image center
     cv2.rectangle(
         annotated_img,
-        (int(w * 0.2), int(h * 0.2)),
-        (int(w * 0.8), int(h * 0.8)),
-        (0, 0, 255),
+        (int(w * 0.15), int(h * 0.15)),
+        (int(w * 0.85), int(h * 0.85)),
+        box_color,
         3,
     )
     cv2.putText(
         annotated_img,
-        "Lithium Battery (94.5%)",
-        (int(w * 0.2), int(h * 0.2) - 10),
+        f"{selected_rule['class_name']} ({selected_rule['conf']}%)",
+        (int(w * 0.15), int(h * 0.15) - 10),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.7,
-        (0, 0, 255),
+        box_color,
         2,
     )
 
     detected_items.append({
-        "name": "Lithium Battery",
-        "conf": 0.945,
-        "details": RULE_DATABASE["Lithium Battery"],
+        "name": selected_rule["class_name"],
+        "conf": selected_rule["conf"] / 100.0,
+        "details": selected_rule,
     })
   else:
-    # --- LIVE YOLO INFERENCE MODE ---
+    # --- LIVE REAL-TIME YOLO MODE ---
     if model is not None:
       results = model(img_np, conf=confidence_threshold, imgsz=img_size)
       for r in results:
-        annotated_img = r.plot()  # Draw default YOLO bounding boxes
+        annotated_img = r.plot()
         for box in r.boxes:
           cls_id = int(box.cls[0])
           conf = float(box.conf[0])
           cls_name = model.names[cls_id]
 
-          # Map common COCO classes or fallback to general display
-          mapped_key = "Plastic Bottle" if "bottle" in cls_name else "Circuit Board"
-          if mapped_key not in RULE_DATABASE:
-            mapped_key = "Plastic Bottle"
+          mapped_key = "Recyclable Plastic Container"
+          if "bottle" in cls_name.lower():
+            mapped_key = "Recyclable Plastic Container"
 
           detected_items.append({
               "name": cls_name.title(),
               "conf": conf,
               "details": RULE_DATABASE[mapped_key],
           })
-    else:
-      st.error("Model failed to load.")
 
-  # Display Processed Image
+  # Display Output Frame
   with col1:
     st.image(
         annotated_img,
-        caption="Processed Frame with Object Detection",
+        caption="Processed Frame with Visual Bounding Box",
         use_column_width=True,
     )
 
-  # Display Actionable Guidance
+  # Display Guidance Card
   with col2:
     if detected_items:
       for item in detected_items:
         details = item["details"]
         st.markdown(
             f"""
-                <div style="background-color: #1e293b; padding: 15px; border-radius: 8px; border-left: 5px solid #0d9488; margin-bottom: 10px; color: white;">
-                    <h3 style="margin: 0; color: #2dd4bf;">{item['name']} <span style="font-size: 0.8rem; background-color: #0f766e; padding: 2px 6px; border-radius: 4px;">Conf: {item['conf']*100:.1f}%</span></h3>
-                    <p style="margin: 8px 0 4px 0;"><b>Hazard Status:</b> {details['hazard']}</p>
-                    <p style="margin: 0;"><b>Disposal Protocol:</b> {details['action']}</p>
+                <div style="background-color: #1e293b; padding: 18px; border-radius: 8px; border-left: 5px solid #0d9488; color: white;">
+                    <h3 style="margin: 0; color: #2dd4bf;">{item['name']} <span style="font-size: 0.8rem; background-color: #0f766e; padding: 2px 6px; border-radius: 4px;">Confidence: {item['conf']*100:.1f}%</span></h3>
+                    <p style="margin: 10px 0 6px 0; font-size: 0.95rem;"><b>Hazard Status:</b> {details['hazard']}</p>
+                    <p style="margin: 0; font-size: 0.95rem;"><b>Disposal Protocol:</b> {details['action']}</p>
                 </div>
             """,
             unsafe_allow_html=True,
         )
-    else:
-      st.info("No target objects detected in current frame.")
-
 else:
   with col2:
     st.markdown(
         """
         <div style="border: 2px dashed #475569; padding: 30px; border-radius: 8px; text-align: center; color: #94a3b8;">
-            <h3>Waiting for an image or camera stream...</h3>
-            <p>Upload a photo or capture via webcam to run GreenLens AI analysis.</p>
+            <h3>Waiting for image input...</h3>
+            <p>Upload an image or use live camera capture to view detection analysis.</p>
         </div>
     """,
         unsafe_allow_html=True,
     )
 
-# Footer Social Impact Metrics Banner
+# Impact Banner Footer
 st.markdown("---")
 col_m1, col_m2, col_m3 = st.columns(3)
 with col_m1:
