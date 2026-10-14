@@ -76,7 +76,7 @@ with col1:
   uploaded_image = None
   if input_source == "Upload Image":
     uploaded_image = st.file_uploader(
-        "Upload e-waste item image...", type=["jpg", "jpeg", "png"]
+        "Upload e-waste item image...", type=["jpg", "jpeg","jfif" ,"png"]
     )
   else:
     uploaded_image = st.camera_input("Capture item using camera")
