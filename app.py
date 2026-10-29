@@ -71,7 +71,7 @@ if uploaded_image is not None:
             genai.configure(api_key=api_key_input)
             
             # Use Gemini Flash (fast & free tier friendly)
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            model = genai.GenerativeModel("gemini-3.8-flash")
 
             with col2:
                 with st.spinner("Analyzing item toxicity and sorting protocols..."):
